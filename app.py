@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime
 
 # ========== CONFIG ==========
-st.set_page_config(page_title="Momentum Alpha v2.5", layout="wide")
-st.title("📈 Momentum Alpha Scanner v2.5")
+st.set_page_config(page_title="Momentum Alpha v2.6", layout="wide")
+st.title("📈 Momentum Alpha Scanner v2.6")
 st.caption("AI-powered penny stock + crypto day trading assistant")
 
 # ========== USER INPUT ==========
@@ -30,7 +29,7 @@ def get_nyse_gainers(limit=100):
         st.error("No valid data found.")
         return pd.DataFrame()
 
-    # Rename columns and clean up
+    # Clean and rename
     df = df.rename(columns={
         "Ticker": "Ticker",
         "Company": "Name",
@@ -40,13 +39,18 @@ def get_nyse_gainers(limit=100):
     })
 
     df = df[["Ticker", "Name", "Price", "% Change", "Volume"]]
-    df["% Change"] = df["% Change"].astype(str).str.replace('%', '').astype(float)
-    df["Price"] = df["Price"].astype(str).str.replace('$', '').astype(float)
-    df["Volume"] = df["Volume"].astype(str).str.replace(',', '').astype(int)
+
+    # Drop rows with missing values
+    df = df.dropna(subset=["Price", "% Change", "Volume"])
+
+    # Convert data types
+    df["% Change"] = df["% Change"].astype(str).str.replace('%', '', regex=False).astype(float)
+    df["Price"] = df["Price"].astype(str).str.replace('$', '', regex=False).astype(float)
+    df["Volume"] = df["Volume"].astype(str).str.replace(',', '', regex=False).astype(int)
 
     df = df.sort_values(by="% Change", ascending=False).head(limit)
 
-    # Calculate how many shares to buy
+    # Calculate suggested shares to buy
     df["Shares to Buy"] = np.floor(buying_power / df["Price"]).astype(int)
 
     return df
