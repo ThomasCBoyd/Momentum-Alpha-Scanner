@@ -27,7 +27,7 @@ def get_nyse_gainers(limit=100):
     response = requests.get(url, headers=headers)
     
     df_list = pd.read_html(response.text)
-    df = df_list[15]  # Main screener data
+    df = df_list[15]  # Main screener table
 
     df = df.rename(columns={
         "Ticker": "Ticker",
@@ -39,10 +39,11 @@ def get_nyse_gainers(limit=100):
 
     df = df[['Ticker', 'Name', 'Price', '% Change', 'Volume']]
 
-    # 🛠 CLEANING FIXED
+    # ✅ CLEANING FIX (safe for all characters)
     df['% Change'] = df['% Change'].astype(str).str.replace('%', '', regex=False).astype(float)
     df['Price'] = df['Price'].astype(str).str.replace(',', '').astype(float)
-    df['Volume'] = df['Volume'].astype(str).replace('-', '0').str.replace(',', '').astype(int)
+    df['Volume'] = df['Volume'].astype(str).str.replace(r'[^\d]', '', regex=True)
+    df['Volume'] = pd.to_numeric(df['Volume'], errors='coerce').fillna(0).astype(int)
 
     return df.head(limit)
 
