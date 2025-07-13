@@ -2,64 +2,143 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime
+import numpy as np
+import requests
+from datetime import datetime
+import time
 
-st.set_page_config(page_title="Momentum Alpha Scanner", layout="wide")
+# === CONFIG ===
+st.set_page_config(page_title="Momentum Alpha v2.5", layout="wide")
+st.title("📈 Momentum Alpha Scanner v2.5")
+st.caption("AI-powered penny stock + crypto day trading assistant")
 
-st.title("📈 Momentum Alpha - Penny Stock AI Scanner")
-st.subheader("🚀 AI-Powered Scanner for Real-Time Penny Stock Day Trades")
-
-# === Settings ===
-tickers = ["ACXP", "PTLE", "MSTY", "SINT", "TOP", "GNS"]  # Update with your preferred tickers
-min_volume = 500_000
-max_price = 5.00
-
-today = datetime.date.today()
-data = {}
+# === USER INPUTS ===
+market_type = st.selectbox("Choose Market", ["NYSE Penny Stocks", "Top Cryptos"])
+buying_power = st.number_input("Your Buying Power ($)", value=20.0, min_value=1.0)
+refresh_rate = st.selectbox("Refresh Rate", ["Manual", "Every 1 min", "Every 5 min"])
 
 st.markdown("---")
 
-# === Fetch data ===
-st.info("📡 Scanning live price and volume data...")
+# === DATA SOURCES ===
 
-for ticker in tickers:
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="1d", interval="1m")
-    if not hist.empty:
-        latest = hist.iloc[-1]
-        prev_close = stock.history(period="2d").iloc[-2]['Close']
-        percent_change = ((latest['Close'] - prev_close) / prev_close) * 100
+def get_nyse_gainers(limit=100):
+    url = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=100"
+    response = requests.get(url).json()
+    quotes = response['finance']['result'][0]['quotes']
+    df = pd.DataFrame(quotes)
+    df = df[df['regularMarketPrice'] < 5.00]
+    df = df[['symbol', 'shortName', 'regularMarketPrice', 'regularMarketChangePercent', 'regularMarketVolume']]
+    df.columns = ['Ticker', 'Name', 'Price', '% Change', 'Volume']
+    df = df.sort_values(by='% Change', ascending=False)
+    return df.head(limit)
 
-        data[ticker] = {
-            'Price': round(latest['Close'], 3),
-            'Volume': int(latest['Volume']),
-            '% Change': round(percent_change, 2),
-        }
+def get_top_cryptos():
+    url = "https://api.coingecko.com/api/v3/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "order": "percent_change_24h_desc",
+        "per_page": 50,
+        "page": 1
+    }
+    response = requests.get(url, params=params).json()
+    df = pd.DataFrame(response)
+    df = df[['symbol', 'name', 'current_price', 'price_change_percentage_24h', 'total_volume']]
+    df.columns = ['Ticker', 'Name', 'Price', '% Change', 'Volume']
+    df['Ticker'] = df['Ticker'].str.upper()
+    df = df.sort_values(by='% Change', ascending=False)
+    return df
 
-# === Display top movers ===
-df = pd.DataFrame.from_dict(data, orient='index')
-df = df[df['Price'] <= max_price]
-df = df[df['Volume'] >= min_volume]
-df = df.sort_values(by='% Change', ascending=False)
+def predict_trend(row):
+    if row['% Change'] > 5 and row['Volume'] > 500000:
+        return "📈 Bullish"
+    elif row['% Change'] < -3:
+        return "📉 Bearish"
+    else:
+        return "⏸️ Neutral"
 
-st.success("✅ Top Penny Stock Movers Under $5")
+def calculate_trade_setup(price):
+    entry_low = price * 0.98
+    entry_high = price * 1.01
+    stop = price * 0.95
+    target1 = price * 1.10
+    target2 = price * 1.20
+    rr_ratio = round((target1 - price) / (price - stop), 2)
+    return entry_low, entry_high, stop, target1, target2, rr_ratio
 
-st.dataframe(df.style.highlight_max(axis=0, color="lightgreen"))
+def send_discord_alert(message):
+    webhook_url = "https://discord.com/api/webhooks/1394076725184299199/17ypxu1jBSY_DVLfKSPQTTnSRHv2Wp9s-Z1YtCmTuZC7pLLNHKRBJAJyzkZU3CrdQYX5"
+    data = {"content": message}
+    requests.post(webhook_url, json=data)
 
-# === Simulate AI Setup Generation ===
-if not df.empty:
-    top = df.iloc[0]
-    st.markdown("### 📊 Suggested Trade Setup (Simulated AI Output)")
-    st.write(f"**Ticker:** {df.index[0]}")
-    st.write(f"**Current Price:** ${top['Price']}")
-    st.write("**Entry Zone:**", f"${top['Price'] * 0.98:.2f} - ${top['Price'] * 1.01:.2f}")
-    st.write("**Stop Loss:**", f"${top['Price'] * 0.95:.2f}")
-    st.write("**Target 1:**", f"${top['Price'] * 1.1:.2f}")
-    st.write("**Target 2:**", f"${top['Price'] * 1.2:.2f}")
-    st.write("**Risk/Reward:**", "1:3")
-    st.write("**Confidence Score:**", "87%")
+# === MAIN APP LOGIC ===
+
+if refresh_rate != "Manual":
+    st.experimental_rerun()
+    time.sleep(60 if refresh_rate == "Every 1 min" else 300)
+
+if market_type == "NYSE Penny Stocks":
+    st.subheader("📊 Top 100 NYSE Penny Stock Gainers Under $5")
+    data = get_nyse_gainers()
 else:
-    st.warning("No qualified penny stock movers found at this time.")
+    st.subheader("📊 Top Cryptos by 24H % Change")
+    data = get_top_cryptos()
+
+# === Analysis ===
+data['Trend'] = data.apply(predict_trend, axis=1)
+data['Entry Zone'] = data['Price'].apply(lambda x: f"${x*0.98:.2f} - ${x*1.01:.2f}")
+data['Stop Loss'] = data['Price'].apply(lambda x: f"${x*0.95:.2f}")
+data['Target'] = data['Price'].apply(lambda x: f"${x*1.10:.2f} / ${x*1.20:.2f}")
+data['Shares to Buy'] = (buying_power / data['Price']).astype(int)
+data['R/R'] = data['Price'].apply(lambda x: round((x*1.10 - x) / (x - x*0.95), 2))
+
+st.dataframe(data[['Ticker', 'Price', '% Change', 'Volume', 'Trend', 'Entry Zone', 'Stop Loss', 'Target', 'R/R', 'Shares to Buy']].head(20), use_container_width=True)
+
+# === Discord Alerts ===
+st.markdown("## 🔔 Live AI Trade Alerts")
+for idx, row in data.iterrows():
+    if row['Trend'] == "📈 Bullish" and row['% Change'] > 5:
+        alert = (
+            f"📢 **BUY SIGNAL: {row['Ticker']}**\n"
+            f"Price: ${row['Price']:.2f} | Entry: {row['Entry Zone']} | Stop: {row['Stop Loss']}\n"
+            f"Target: {row['Target']} | Trend: {row['Trend']} | R/R: {row['R/R']}\n"
+            f"✅ Buy {row['Shares to Buy']} shares w/ ${buying_power} buying power"
+        )
+        send_discord_alert(alert)
+        st.success(f"Alert sent for {row['Ticker']}")
+
+# === Trade Journal (Simplified Log for Now) ===
+st.markdown("## 📒 Trade Log (Manual Entry for Now)")
+
+if 'trades' not in st.session_state:
+    st.session_state.trades = []
+
+with st.form("log_trade"):
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        trade_ticker = st.text_input("Ticker")
+    with col2:
+        entry_price = st.number_input("Entry Price", value=0.0)
+    with col3:
+        exit_price = st.number_input("Exit Price", value=0.0)
+    with col4:
+        quantity = st.number_input("Shares", value=1, min_value=1)
+
+    submitted = st.form_submit_button("Log Trade")
+    if submitted:
+        profit = round((exit_price - entry_price) * quantity, 2)
+        st.session_state.trades.append({
+            "Ticker": trade_ticker.upper(),
+            "Entry": entry_price,
+            "Exit": exit_price,
+            "Shares": quantity,
+            "P/L": profit
+        })
+
+if st.session_state.trades:
+    trade_df = pd.DataFrame(st.session_state.trades)
+    st.dataframe(trade_df, use_container_width=True)
+    csv = trade_df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Download Trade Log", data=csv, file_name="trade_log.csv", mime="text/csv")
 
 st.markdown("---")
-st.caption("🔄 Refresh to update. | Built by Thomas Boyd’s Momentum Engine v1.")
+st.caption("🧠 Built by Thomas Boyd | Momentum Alpha Scanner v2.5")
