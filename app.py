@@ -25,10 +25,9 @@ def get_nyse_gainers(limit=100):
     url = "https://finviz.com/screener.ashx?v=111&s=ta_topgainers&f=sh_price_u5"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
-
-    # Use pandas to read HTML tables
+    
     df_list = pd.read_html(response.text)
-    df = df_list[15]  # Table 15 contains the data
+    df = df_list[15]  # Main screener data
 
     df = df.rename(columns={
         "Ticker": "Ticker",
@@ -39,9 +38,11 @@ def get_nyse_gainers(limit=100):
     })
 
     df = df[['Ticker', 'Name', 'Price', '% Change', 'Volume']]
-    df['% Change'] = df['% Change'].str.replace('%', '', regex=False).astype(float)
-    df['Price'] = df['Price'].astype(float)
-    df['Volume'] = df['Volume'].replace('-', '0').str.replace(',', '').astype(int)
+
+    # 🛠 CLEANING FIXED
+    df['% Change'] = df['% Change'].astype(str).str.replace('%', '', regex=False).astype(float)
+    df['Price'] = df['Price'].astype(str).str.replace(',', '').astype(float)
+    df['Volume'] = df['Volume'].astype(str).replace('-', '0').str.replace(',', '').astype(int)
 
     return df.head(limit)
 
