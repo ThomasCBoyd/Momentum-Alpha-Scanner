@@ -21,18 +21,24 @@ st.markdown("---")
 
 # === DATA SOURCES ===
 
-def get_nyse_gainers(limit=100):
-    url = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=100"
-    response = requests.get(url).json()
-    quotes = response['finance']['result'][0]['quotes']
-    df = pd.DataFrame(quotes)
-    df = df[df['regularMarketPrice'] < 5.00]
-    df = df[['symbol', 'shortName', 'regularMarketPrice', 'regularMarketChangePercent', 'regularMarketVolume']]
-    df.columns = ['Ticker', 'Name', 'Price', '% Change', 'Volume']
-    df = df.sort_values(by='% Change', ascending=False)
-    return df.head(limit)
+    def get_nyse_gainers(limit=100):
+    url = "https://finviz.com/screener.ashx?v=111&s=ta_topgainers&f=sh_price_u5"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
 
-def get_top_cryptos():
+    # Use pandas to read HTML tables
+    df_list = pd.read_html(response.text)
+    df = df_list[15]  # Table 15 contains the data
+
+    df = df.rename(columns={"Ticker": "Ticker", "Company": "Name", "Price": "Price", "Change": "% Change", "Volume": "Volume"})
+    df = df[['Ticker', 'Name', 'Price', '% Change', 'Volume']]
+
+    # Clean numeric columns
+    df['% Change'] = df['% Change'].str.replace('%', '').astype(float)
+    df['Price'] = df['Price'].astype(float)
+    df['Volume'] = df['Volume'].replace('-', '0').str.replace(',', '').astype(int)
+
+    return df.head(limit)def get_top_cryptos():
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
         "vs_currency": "usd",
