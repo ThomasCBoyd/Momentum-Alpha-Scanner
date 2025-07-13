@@ -1,78 +1,86 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
+from datetime import datetime
 
-# === PAGE CONFIG ===
-st.set_page_config(page_title="Momentum Alpha v2.5+", layout="wide")
-st.title("📈 Momentum Alpha Scanner v2.5+")
+# ========== CONFIG ==========
+st.set_page_config(page_title="Momentum Alpha v2.5", layout="wide")
+st.title("📈 Momentum Alpha Scanner v2.5")
 st.caption("AI-powered penny stock + crypto day trading assistant")
 
-# === USER INPUTS ===
-market_type = st.selectbox("Choose Market:", ["NYSE Penny Stocks", "Top Cryptos"])
+# ========== USER INPUT ==========
+market_type = st.selectbox("Choose Market", ["NYSE Penny Stocks", "Top Cryptos"])
 buying_power = st.number_input("Your Buying Power ($)", value=20.0, min_value=1.0)
-refresh_rate = st.selectbox("Refresh Rate:", ["Manual", "Every 1 min", "Every 5 min"])
+refresh_rate = st.selectbox("Refresh Rate", ["Manual", "Every 1 min", "Every 5 min"])
 
-st.markdown("---")
+# ========== DATA FUNCTIONS ==========
 
-# === NYSE PENNY STOCKS ===
 def get_nyse_gainers(limit=100):
     url = "https://finviz.com/screener.ashx?v=111&s=ta_topgainers&f=sh_price_u5"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
-    df_list = pd.read_html(response.text)
+    tables = pd.read_html(response.text)
 
-    if len(df_list) > 0:
-        df = df_list[0]
-        df = df.rename(columns={
-            "Ticker": "Ticker",
-            "Company": "Name",
-            "Price": "Price",
-            "Change": "% Change",
-            "Volume": "Volume"
-        })
+    for table in tables:
+        if "Ticker" in table.columns:
+            df = table.copy()
+            break
+    else:
+        st.error("No valid data found.")
+        return pd.DataFrame()
 
-        df = df[["Ticker", "Name", "Price", "% Change", "Volume"]]
-        df = df.head(limit)
+    # Rename columns and clean up
+    df = df.rename(columns={
+        "Ticker": "Ticker",
+        "Company": "Name",
+        "Price": "Price",
+        "Change": "% Change",
+        "Volume": "Volume"
+    })
 
-        # Clean and convert
-        df = df.dropna(subset=["Price", "% Change", "Volume"])
-        df["Price"] = df["Price"].astype(str).str.replace("$", "").str.replace(",", "").astype(float)
-        df["% Change"] = df["% Change"].astype(str).str.replace("%", "").str.replace(",", "").astype(float)
-        df["Volume"] = df["Volume"].astype(str).str.replace(",", "").str.replace("K", "e3").str.replace("M", "e6")
-        df["Volume"] = df["Volume"].apply(pd.eval).astype(int)
+    df = df[["Ticker", "Name", "Price", "% Change", "Volume"]]
+    df["% Change"] = df["% Change"].astype(str).str.replace('%', '').astype(float)
+    df["Price"] = df["Price"].astype(str).str.replace('$', '').astype(float)
+    df["Volume"] = df["Volume"].astype(str).str.replace(',', '').astype(int)
 
-        df = df[df["Price"] > 0]
-        df["Shares to Buy"] = (buying_power / df["Price"]).fillna(0).astype(int)
+    df = df.sort_values(by="% Change", ascending=False).head(limit)
 
-        return df
+    # Calculate how many shares to buy
+    df["Shares to Buy"] = np.floor(buying_power / df["Price"]).astype(int)
 
-    return pd.DataFrame(columns=["Ticker", "Name", "Price", "% Change", "Volume", "Shares to Buy"])
-
-# === TOP CRYPTOS ===
-def get_top_cryptos(limit=100):
-    url = "https://api.coingecko.com/api/v3/coins/markets"
-    params = {"vs_currency": "usd", "order": "percent_change_24h_desc", "per_page": limit, "page": 1}
-    response = requests.get(url, params=params)
-    data = response.json()
-
-    df = pd.DataFrame(data)[["symbol", "name", "current_price", "price_change_percentage_24h", "total_volume"]]
-    df.columns = ["Ticker", "Name", "Price", "% Change", "Volume"]
-
-    df = df.dropna(subset=["Price", "% Change", "Volume"])
-    df = df[df["Price"] > 0]
-    df["Price"] = df["Price"].astype(float)
-    df["% Change"] = df["% Change"].astype(float)
-    df["Volume"] = df["Volume"].astype(float).astype(int)
-
-    df["Shares to Buy"] = (buying_power / df["Price"]).fillna(0).astype(int)
     return df
 
-# === DISPLAY OUTPUT ===
+def get_top_cryptos(limit=50):
+    url = "https://api.coingecko.com/api/v3/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "order": "percent_change_24h_desc",
+        "per_page": limit,
+        "page": 1,
+        "price_change_percentage": "24h"
+    }
+    response = requests.get(url, params=params)
+    data = response.json()
+    df = pd.DataFrame(data)
+    df = df[["symbol", "name", "current_price", "price_change_percentage_24h", "total_volume"]]
+    df.columns = ["Ticker", "Name", "Price", "% Change", "Volume"]
+    df["% Change"] = df["% Change"].round(2)
+    df["Shares to Buy"] = np.floor(buying_power / df["Price"]).astype(int)
+    return df
+
+# ========== DISPLAY LOGIC ==========
+
+st.markdown("### 📊 Scanning...")
+
 if market_type == "NYSE Penny Stocks":
-    st.subheader("📊 Top 100 NYSE Penny Stock Gainers Under $5")
+    st.subheader("📈 Top 100 NYSE Penny Stock Gainers Under $5")
     data = get_nyse_gainers()
 else:
-    st.subheader("💎 Top 100 Crypto Gainers (24h)")
+    st.subheader("🪙 Top Crypto Gainers")
     data = get_top_cryptos()
 
-st.dataframe(data, use_container_width=True)
+if not data.empty:
+    st.dataframe(data, use_container_width=True)
+else:
+    st.warning("⚠️ No data to display. Please try refreshing manually.")
