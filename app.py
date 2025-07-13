@@ -21,7 +21,7 @@ st.markdown("---")
 
 # === DATA SOURCES ===
 
-    def get_nyse_gainers(limit=100):
+   def get_nyse_gainers(limit=100):
     url = "https://finviz.com/screener.ashx?v=111&s=ta_topgainers&f=sh_price_u5"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
@@ -30,10 +30,17 @@ st.markdown("---")
     df_list = pd.read_html(response.text)
     df = df_list[15]  # Table 15 contains the data
 
-    df = df.rename(columns={"Ticker": "Ticker", "Company": "Name", "Price": "Price", "Change": "% Change", "Volume": "Volume"})
+    df = df.rename(columns={
+        "Ticker": "Ticker",
+        "Company": "Name",
+        "Price": "Price",
+        "Change": "% Change",
+        "Volume": "Volume"
+    })
+
     df = df[['Ticker', 'Name', 'Price', '% Change', 'Volume']]
 
-    # Clean numeric columns
+    return df.head(limit)    # Clean numeric columns
     df['% Change'] = df['% Change'].str.replace('%', '').astype(float)
     df['Price'] = df['Price'].astype(float)
     df['Volume'] = df['Volume'].replace('-', '0').str.replace(',', '').astype(int)
