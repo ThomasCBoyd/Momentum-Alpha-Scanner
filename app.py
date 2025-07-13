@@ -21,7 +21,7 @@ st.markdown("---")
 
 # === DATA SOURCES ===
 
-   def get_nyse_gainers(limit=100):
+def get_nyse_gainers(limit=100):
     url = "https://finviz.com/screener.ashx?v=111&s=ta_topgainers&f=sh_price_u5"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
@@ -39,13 +39,13 @@ st.markdown("---")
     })
 
     df = df[['Ticker', 'Name', 'Price', '% Change', 'Volume']]
-
-    return df.head(limit)    # Clean numeric columns
-    df['% Change'] = df['% Change'].str.replace('%', '').astype(float)
+    df['% Change'] = df['% Change'].str.replace('%', '', regex=False).astype(float)
     df['Price'] = df['Price'].astype(float)
     df['Volume'] = df['Volume'].replace('-', '0').str.replace(',', '').astype(int)
 
-    return df.head(limit)def get_top_cryptos():
+    return df.head(limit)
+
+def get_top_cryptos():
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
         "vs_currency": "usd",
@@ -83,12 +83,13 @@ def send_discord_alert(message):
     data = {"content": message}
     requests.post(webhook_url, json=data)
 
-# === MAIN APP LOGIC ===
+# === REFRESH TIMER ===
+if refresh_rate == "Every 1 min":
+    time.sleep(60)
+elif refresh_rate == "Every 5 min":
+    time.sleep(300)
 
-if refresh_rate != "Manual":
-    st.experimental_rerun()
-    time.sleep(60 if refresh_rate == "Every 1 min" else 300)
-
+# === LOAD DATA ===
 if market_type == "NYSE Penny Stocks":
     st.subheader("📊 Top 100 NYSE Penny Stock Gainers Under $5")
     data = get_nyse_gainers()
@@ -96,7 +97,7 @@ else:
     st.subheader("📊 Top Cryptos by 24H % Change")
     data = get_top_cryptos()
 
-# === Analysis ===
+# === AI ANALYSIS ===
 data['Trend'] = data.apply(predict_trend, axis=1)
 data['Entry Zone'] = data['Price'].apply(lambda x: f"${x*0.98:.2f} - ${x*1.01:.2f}")
 data['Stop Loss'] = data['Price'].apply(lambda x: f"${x*0.95:.2f}")
@@ -106,7 +107,7 @@ data['R/R'] = data['Price'].apply(lambda x: round((x*1.10 - x) / (x - x*0.95), 2
 
 st.dataframe(data[['Ticker', 'Price', '% Change', 'Volume', 'Trend', 'Entry Zone', 'Stop Loss', 'Target', 'R/R', 'Shares to Buy']].head(20), use_container_width=True)
 
-# === Discord Alerts ===
+# === DISCORD ALERTS ===
 st.markdown("## 🔔 Live AI Trade Alerts")
 for idx, row in data.iterrows():
     if row['Trend'] == "📈 Bullish" and row['% Change'] > 5:
@@ -119,7 +120,7 @@ for idx, row in data.iterrows():
         send_discord_alert(alert)
         st.success(f"Alert sent for {row['Ticker']}")
 
-# === Trade Journal (Simplified Log for Now) ===
+# === TRADE JOURNAL ===
 st.markdown("## 📒 Trade Log (Manual Entry for Now)")
 
 if 'trades' not in st.session_state:
