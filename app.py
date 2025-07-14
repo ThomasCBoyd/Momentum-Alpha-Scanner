@@ -1,24 +1,34 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
+import time
 
-# Page config
-st.set_page_config(page_title="Penny Stock Tracker", layout="wide")
-st.title("📈 Penny Stock Tracker (Live via Yahoo Finance)")
-st.caption("Live prices, % change, and volume for penny stocks under $5. Optimized for mobile.")
+# CONFIG
+st.set_page_config(page_title="Momentum Alpha", layout="wide")
+st.title("🚀 Momentum Alpha — Penny Stock AI Scanner")
+st.caption("Live penny stock scanner + buy alerts — works on mobile")
 
-# Input section
+# Ticker Input
 tickers = st.text_input(
     "Enter penny stock tickers (comma-separated):",
     value="RELI, CGTX, MSTY, PTLE, BLDE, AVTX, BNGO"
 ).upper().replace(" ", "").split(",")
 
-buying_power = st.number_input("Your buying power ($):", min_value=0.0, value=20.0)
+# Buying power input
+buying_power = st.number_input("Your Buying Power ($):", min_value=0.0, value=20.0)
+
+# Refresh rate
+refresh_rate = st.selectbox("Auto-refresh every:", ["Manual", "60 seconds", "300 seconds"])
+
+# Discord webhook
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1394076725184299199/17ypxu1jBSY_DVLfKSPQTTnSRHv2Wp9s-Z1YtCmTuZC7pLLNHKRBJAJyzkZU3CrdQYX5"
 
 @st.cache_data(ttl=60)
 def get_stock_data(tickers):
     data = yf.download(tickers, period="1d", interval="1m", group_by='ticker', threads=True)
     results = []
+    alerts = []
 
     for ticker in tickers:
         try:
@@ -29,6 +39,12 @@ def get_stock_data(tickers):
             volume = df['Volume'].dropna().iloc[-1]
             shares = int(buying_power // current_price)
 
+            # AI-lite breakout logic
+            if percent_change > 7 and volume > 500000:
+                alert = f"🚨 {ticker} is up {percent_change:.2f}% with strong volume ({int(volume)})."
+                send_discord_alert(alert)
+                alerts.append(alert)
+
             results.append({
                 "Ticker": ticker,
                 "Price": round(current_price, 3),
@@ -36,6 +52,7 @@ def get_stock_data(tickers):
                 "Volume": int(volume),
                 "Shares to Buy": shares
             })
+
         except Exception:
             results.append({
                 "Ticker": ticker,
@@ -45,10 +62,22 @@ def get_stock_data(tickers):
                 "Shares to Buy": "N/A"
             })
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), alerts
 
-# Display
-if tickers:
-    df_result = get_stock_data(tickers)
-    df_result = df_result.sort_values(by="% Change", ascending=False)
-    st.dataframe(df_result, use_container_width=True)
+def send_discord_alert(message):
+    payload = {"content": message}
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    except:
+        pass
+
+# Fetch + Display
+if st.button("Scan Now") or refresh_rate != "Manual":
+    data, alerts = get_stock_data(tickers)
+    data = data.sort_values(by="% Change", ascending=False)
+    st.dataframe(data, use_container_width=True)
+    if alerts:
+        st.warning("Alerts sent to Discord!")
+    if refresh_rate != "Manual":
+        time.sleep(60 if refresh_rate == "60 seconds" else 300)
+        st.rerun()
