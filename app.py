@@ -1,79 +1,65 @@
+# app.py
 import streamlit as st
+import yfinance as yf
 import pandas as pd
-from yahoo_fin import stock_info as si
-from requests_html import HTMLSession
+import datetime
 
-# -----------------------------
-# Setup: Streamlit UI
-# -----------------------------
-st.set_page_config(page_title="Momentum Alpha", layout="wide")
+st.set_page_config(page_title="Momentum Alpha Scanner", layout="wide")
 
-st.title("📈 Top 100 NYSE Penny Stock Gainers Under $5")
-st.caption("AI-powered penny stock + crypto day trading assistant")
+st.title("📈 Momentum Alpha - Penny Stock AI Scanner")
+st.subheader("🚀 AI-Powered Scanner for Real-Time Penny Stock Day Trades")
 
-market = st.selectbox("Choose Market", ["NYSE Penny Stocks", "Crypto"], index=0)
-buying_power = st.number_input("Your Buying Power ($)", min_value=0.0, value=50.0)
-refresh_rate = st.selectbox("Refresh Rate", ["Manual", "Every 1 min", "Every 5 min"], index=0)
+# === Settings ===
+tickers = ["ACXP", "PTLE", "MSTY", "SINT", "TOP", "GNS"]  # Update with your preferred tickers
+min_volume = 500_000
+max_price = 5.00
 
-st.divider()
+today = datetime.date.today()
+data = {}
 
-# -----------------------------
-# Scraper Function: NYSE Gainers Under $5
-# -----------------------------
-def get_nyse_gainers():
-    try:
-        url = "https://finance.yahoo.com/screener/predefined/day_gainers"
-        session = HTMLSession()
-        r = session.get(url)
-        r.html.render(sleep=2, timeout=20)
-        table = r.html.find("table", first=True)
-        rows = table.find("tr")[1:]  # Skip header
+st.markdown("---")
 
-        data = []
-        for row in rows:
-            cols = row.find("td")
-            if len(cols) >= 6:
-                ticker = cols[0].text
-                name = cols[1].text
-                price = float(cols[2].text.replace(",", "").replace("$", ""))
-                change_pct = float(cols[4].text.replace("%", "").replace("+", "").replace(",", ""))
-                volume_str = cols[5].text.replace(",", "").replace("M", "e6").replace("K", "e3")
-                try:
-                    volume = float(eval(volume_str))
-                except:
-                    volume = 0
+# === Fetch data ===
+st.info("📡 Scanning live price and volume data...")
 
-                if price < 5.00:
-                    data.append({
-                        "Ticker": ticker,
-                        "Name": name,
-                        "Price": price,
-                        "% Change": change_pct,
-                        "Volume": volume
-                    })
+for ticker in tickers:
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1d", interval="1m")
+    if not hist.empty:
+        latest = hist.iloc[-1]
+        prev_close = stock.history(period="2d").iloc[-2]['Close']
+        percent_change = ((latest['Close'] - prev_close) / prev_close) * 100
 
-        df = pd.DataFrame(data)
-        df.sort_values(by="% Change", ascending=False, inplace=True)
-        return df
+        data[ticker] = {
+            'Price': round(latest['Close'], 3),
+            'Volume': int(latest['Volume']),
+            '% Change': round(percent_change, 2),
+        }
 
-    except Exception as e:
-        st.error(f"Error loading NYSE gainers: {e}")
-        return pd.DataFrame()
+# === Display top movers ===
+df = pd.DataFrame.from_dict(data, orient='index')
+df = df[df['Price'] <= max_price]
+df = df[df['Volume'] >= min_volume]
+df = df.sort_values(by='% Change', ascending=False)
 
-# -----------------------------
-# Main Logic
-# -----------------------------
-if market == "NYSE Penny Stocks":
-    df = get_nyse_gainers()
+st.success("✅ Top Penny Stock Movers Under $5")
 
-    if not df.empty:
-        try:
-            df["Shares to Buy"] = (buying_power / df["Price"]).astype(int)
-            st.dataframe(df[["Ticker", "Name", "Price", "% Change", "Volume", "Shares to Buy"]], use_container_width=True)
-        except Exception as e:
-            st.error(f"Error calculating shares to buy: {e}")
-    else:
-        st.warning("No penny stock gainers found under $5.")
+st.dataframe(df.style.highlight_max(axis=0, color="lightgreen"))
 
-elif market == "Crypto":
-    st.warning("Crypto scanning is coming soon!")
+# === Simulate AI Setup Generation ===
+if not df.empty:
+    top = df.iloc[0]
+    st.markdown("### 📊 Suggested Trade Setup (Simulated AI Output)")
+    st.write(f"**Ticker:** {df.index[0]}")
+    st.write(f"**Current Price:** ${top['Price']}")
+    st.write("**Entry Zone:**", f"${top['Price'] * 0.98:.2f} - ${top['Price'] * 1.01:.2f}")
+    st.write("**Stop Loss:**", f"${top['Price'] * 0.95:.2f}")
+    st.write("**Target 1:**", f"${top['Price'] * 1.1:.2f}")
+    st.write("**Target 2:**", f"${top['Price'] * 1.2:.2f}")
+    st.write("**Risk/Reward:**", "1:3")
+    st.write("**Confidence Score:**", "87%")
+else:
+    st.warning("No qualified penny stock movers found at this time.")
+
+st.markdown("---")
+st.caption("🔄 Refresh to update. | Built by Thomas Boyd’s Momentum Engine v1.")
