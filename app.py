@@ -1,65 +1,55 @@
-# app.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime
 
-st.set_page_config(page_title="Momentum Alpha Scanner", layout="wide")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="Penny Stock Tracker", layout="wide")
+st.title("📈 Penny Stock Tracker (Live via Yahoo Finance)")
+st.caption("Tracking live prices, % change, and volume for selected penny stocks under $5.")
 
-st.title("📈 Momentum Alpha - Penny Stock AI Scanner")
-st.subheader("🚀 AI-Powered Scanner for Real-Time Penny Stock Day Trades")
+# --- USER INPUT ---
+tickers = st.text_input(
+    "Enter tickers (comma separated)", 
+    value="RELI, CGTX, PTON, MSTY, BLDE, AVTX, BNGO"
+).upper().replace(" ", "").split(",")
 
-# === Settings ===
-tickers = ["ACXP", "PTLE", "MSTY", "SINT", "TOP", "GNS"]  # Update with your preferred tickers
-min_volume = 500_000
-max_price = 5.00
+buying_power = st.number_input("Enter your buying power ($)", min_value=0.0, value=50.0)
 
-today = datetime.date.today()
-data = {}
+# --- FETCH DATA ---
+@st.cache_data(ttl=60)
+def get_stock_data(tickers):
+    data = yf.download(tickers, period="1d", interval="1m", group_by='ticker', threads=True)
+    results = []
 
-st.markdown("---")
+    for ticker in tickers:
+        try:
+            df = data[ticker]
+            current_price = df['Close'].dropna().iloc[-1]
+            open_price = df['Open'].dropna().iloc[0]
+            percent_change = ((current_price - open_price) / open_price) * 100
+            volume = df['Volume'].dropna().iloc[-1]
+            shares_to_buy = int(buying_power // current_price)
 
-# === Fetch data ===
-st.info("📡 Scanning live price and volume data...")
+            results.append({
+                'Ticker': ticker,
+                'Price': round(current_price, 3),
+                '% Change': round(percent_change, 2),
+                'Volume': int(volume),
+                'Shares to Buy': shares_to_buy
+            })
+        except Exception as e:
+            results.append({
+                'Ticker': ticker,
+                'Price': 'Error',
+                '% Change': 'Error',
+                'Volume': 'Error',
+                'Shares to Buy': 'N/A'
+            })
 
-for ticker in tickers:
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="1d", interval="1m")
-    if not hist.empty:
-        latest = hist.iloc[-1]
-        prev_close = stock.history(period="2d").iloc[-2]['Close']
-        percent_change = ((latest['Close'] - prev_close) / prev_close) * 100
+    return pd.DataFrame(results)
 
-        data[ticker] = {
-            'Price': round(latest['Close'], 3),
-            'Volume': int(latest['Volume']),
-            '% Change': round(percent_change, 2),
-        }
-
-# === Display top movers ===
-df = pd.DataFrame.from_dict(data, orient='index')
-df = df[df['Price'] <= max_price]
-df = df[df['Volume'] >= min_volume]
-df = df.sort_values(by='% Change', ascending=False)
-
-st.success("✅ Top Penny Stock Movers Under $5")
-
-st.dataframe(df.style.highlight_max(axis=0, color="lightgreen"))
-
-# === Simulate AI Setup Generation ===
-if not df.empty:
-    top = df.iloc[0]
-    st.markdown("### 📊 Suggested Trade Setup (Simulated AI Output)")
-    st.write(f"**Ticker:** {df.index[0]}")
-    st.write(f"**Current Price:** ${top['Price']}")
-    st.write("**Entry Zone:**", f"${top['Price'] * 0.98:.2f} - ${top['Price'] * 1.01:.2f}")
-    st.write("**Stop Loss:**", f"${top['Price'] * 0.95:.2f}")
-    st.write("**Target 1:**", f"${top['Price'] * 1.1:.2f}")
-    st.write("**Target 2:**", f"${top['Price'] * 1.2:.2f}")
-    st.write("**Risk/Reward:**", "1:3")
-    st.write("**Confidence Score:**", "87%")
-else:
-    st.warning("No qualified penny stock movers found at this time.")
-
-st.markdown("---")
-st.caption("🔄 Refresh to update. | Built by Thomas Boyd’s Momentum Engine v1.")
+# --- DISPLAY DATA ---
+if tickers:
+    df_result = get_stock_data(tickers)
+    df_result = df_result.sort_values(by="% Change", ascending=False)
+    st.dataframe(df_result, use_container_width=True)
